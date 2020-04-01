@@ -62,7 +62,7 @@ import net.good321.proto.GameServerPublicMsg.C2STestCode;
 /**
  * 我是dev
  * @author Pan
- * 测试版本:2
+ * 测试版本:dev3
  */
 public class TestMain {
 
