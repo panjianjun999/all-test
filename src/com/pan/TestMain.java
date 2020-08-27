@@ -10,6 +10,7 @@ import java.io.InputStreamReader;
 import java.io.UnsupportedEncodingException;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -24,17 +25,24 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import org.apache.commons.compress.utils.IOUtils;
 
 import com.alibaba.fastjson.JSON;
-import com.good.sdk.util.SignUtil;
+import com.alibaba.fastjson.JSONObject;
+import com.google.protobuf.GeneratedMessage;
+import com.google.protobuf.InvalidProtocolBufferException;
+import com.google.protobuf.TextFormat;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufInputStream;
@@ -43,8 +51,10 @@ import net.good321.common.define.ExceptionCode;
 import net.good321.common.define.ProtocolCode;
 import net.good321.common.po.game.player.TbPlayerFriendInfoPo;
 import net.good321.common.rmi.ILoginRmi;
+import net.good321.frame.dispatcher.UseTimeStatistic;
 import net.good321.frame.utils.DateUtil;
 import net.good321.frame.utils.FileUtils;
+import net.good321.frame.utils.HttpApiClient;
 import net.good321.frame.utils.HttpUtils;
 import net.good321.frame.utils.MD5;
 import net.good321.frame.utils.OrderedThreadPoolExecutor;
@@ -54,6 +64,7 @@ import net.good321.frame.utils.ThreadPool;
 import net.good321.frame.utils.Tool;
 import net.good321.frame.utils.ZipUtils;
 import net.good321.frame.utils.codec.Zip;
+import net.good321.proto.CommonMsg;
 import net.good321.proto.FightCheckMsg;
 import net.good321.proto.FightCheckMsg.BattleFrameCheckData;
 import net.good321.proto.FightCheckMsg.CheckDataAttackDamage;
@@ -121,9 +132,251 @@ public class TestMain {
 		
 //		countFileName("D:\\pan\\other\\发票");
 		
-		testClassLoader();
+//		testClassLoader();
+		
+//		testHttpPost();
+		
+//		testProtoBuf();
+		
+//		testConcurrentHashMapToList();
+		
+		testMatching();
+		
+//		testSet();
+		
+//		testLeetcode();
 	}
 	
+	/**
+	 * 练手
+	 */
+	private static void testLeetcode() {
+		long ti = System.currentTimeMillis();
+		
+		new com.leetcode.Q3().doTest();
+		
+		System.out.println("完毕,耗时=" + (System.currentTimeMillis() - ti));
+		
+	}
+
+	/**
+	 * 深入理解set的顺序
+	 */
+	private static void testSet() {
+		Set<Integer> array = new LinkedHashSet<>(200);//迭代顺序和插入顺序:相同
+//		List<Integer> array = new ArrayList<>(200);//迭代顺序和插入顺序:相同
+//		Set<Integer> array = new HashSet<>(200);//迭代顺序和插入顺序:无序
+		
+		for (int i = 100; i > 0; i--) {
+			array.add(i);
+		}
+		
+		for (int i : array) {
+			System.out.printf("%02d,",i);
+		}
+	}
+
+	/**
+	 * 测试匹配
+	 * 等级差10以内,10人一组
+	 */
+	private static void testMatching() {
+		Map<Integer,Integer> allPlayer = new HashMap<>();//所有玩家的详情
+		
+		//模拟玩家数据
+		System.out.println("开始插入:");
+		
+		int idStart = 100;
+		
+		//随机
+		for (int i = 0; i < 93; i++) {
+			int pId = RandomUtil.nextInt(idStart++, 100000);//模拟玩家id
+			int pLevev = RandomUtil.nextInt(1, 99);//模拟玩家等级
+			allPlayer.put(pId, pLevev);
+		}
+		
+		//固定
+//		int[] levels = new int[] {
+//				1,1,1,3,6,7,9,10,11,12,
+//				13,14,14,14,15,16,16,17,17,17,
+//				17,19,20,20,20,22,22,23,24,27,
+//				27,28,29,31,34,36,37,37,37,38,
+//				40,42,42,45,50,50,52,52,55,56,
+//				58,58,59,59,61,61,61,62,63,64,
+//				65,66,67,68,69,69,73,73,74,74,
+//				76,79,79,81,81,82,82,82,82,82,
+//				84,89,89,89,93,94,95,95,95,96,
+//				97,99,99};
+//		for (int pLevev : levels) {
+//			int pId = RandomUtil.nextInt(idStart++, 100000);//模拟玩家id
+//			allPlayer.put(pId, pLevev);
+//		}
+		
+		sortAndprintPlayerMapValues(allPlayer);
+		
+		System.out.println();
+		
+		//开始匹配
+		System.out.println("插入完成,size=" + allPlayer.size() + ",开始匹配:");
+		
+		System.out.println();
+		int lev_set = 10;//等级差
+		int playe_set = 10;//每组人数
+		
+		List<Map<Integer, Integer>> rsList = doMatching(allPlayer,lev_set,playe_set);
+		
+		if(!rsList.isEmpty()) {//移除已经匹配好的
+			for (Map<Integer, Integer> map : rsList) {
+				map.forEach((id,level) -> {
+					allPlayer.remove(id);
+				});
+			}
+		}
+		
+		//一次匹配流程结束后
+		System.out.println("匹配完成,本轮剩余size=" + allPlayer.size());
+		if(allPlayer.size() > 0) {
+			System.out.println("剩余玩家等级详情:");
+			sortAndprintPlayerMapValues(allPlayer);
+		}
+	}
+	
+	/**
+	 * 排序之后匹配
+	 * @param playerMap id --> level
+	 * @param lev_set 匹配条件:等级差
+	 * @param playe_set 每组人数
+	 * @return 
+	 */
+	private static List<Map<Integer, Integer>> doMatching(Map<Integer, Integer> playerMap,int lev_set,int playe_set) {
+		List<Integer[]> levelList = new ArrayList<>(playerMap.size());//排序level
+		playerMap.forEach((id,level) -> {
+			levelList.add(new Integer[] {id,level});
+		});
+		
+		levelList.sort(new Comparator<Integer[]>() {
+			@Override
+			public int compare(Integer[] o1, Integer[] o2) {
+				return o1[1].compareTo(o2[1]);
+			}
+		});
+		
+		List<Map<Integer, Integer>> rsList = new ArrayList<>();
+		
+		int groupId = 1;
+		for (int i = 0; i < levelList.size(); i++) {
+			int start = i;
+			int end = i + playe_set - 1;//不包括自己
+			
+			if(end >= levelList.size()) {//不够人了
+				break;
+			}
+			
+			if(Math.abs(levelList.get(start)[1] - levelList.get(end)[1]) <= lev_set) {//符合条件
+				System.out.print("分组id=" + (groupId++) + ",成员等级=");
+				
+				Map<Integer, Integer> map = new HashMap<>();
+				rsList.add(map);
+				for (int j = start; j <= end; j++) {
+					Integer[] pa = levelList.get(j);
+					map.put(pa[0], pa[1]);
+					
+					System.out.printf("%02d,",pa[1]);
+				}
+				System.out.println();
+				
+				i += playe_set;
+			}
+		}
+		
+		return rsList;
+	}
+
+	/**
+	 * 排序和打印map
+	 * @param groupMap
+	 */
+	private static void sortAndprintPlayerMapValues(Map<Integer, Integer> groupMap) {
+		List<Integer> levelList = new ArrayList<>(groupMap.values());//排序level方便查看
+		levelList.sort(new Comparator<Integer>() {
+			@Override
+			public int compare(Integer o1, Integer o2) {
+				return o1.compareTo(o2);
+			}
+		});
+		
+		int i = 0;
+		for (int paLevel : levelList) {//假设每个人都有一次作为基准的匹配机会
+			System.out.printf("%02d,",paLevel);
+			i++;
+			if(i%10 == 0) {
+				System.out.println();
+			}
+		}
+	}
+
+	private static void testConcurrentHashMapToList() {
+		Map<Integer, String> map = new ConcurrentHashMap<>();
+		for (int i = 0; i < 1000; i++) {
+			map.put(i, "我是一个测试字符是宽孔度飞房开始打开方式交京东机客服是对方=" + i);
+		}
+		
+		long ti = System.currentTimeMillis();
+		for (int i = 0; i < 1000; i++) {
+			map.values();
+//			List<String> list = new ArrayList<>(map.values());
+//			list.addAll(map.values());
+		}
+		
+		System.out.println("总耗时=" + (System.currentTimeMillis() - ti));
+	}
+
+	private static void testProtoBuf() {
+		CommonMsg.S2CCommontMsg.Builder send = CommonMsg.S2CCommontMsg.newBuilder();
+		send.setCmdCode(1);
+		send.setResult(2);
+		send.setResultInfo("info3");
+		send.setType(4);
+		
+		byte[] bytes = send.build().toByteArray();
+		
+		try {
+			CommonMsg.S2CCommontMsg msg = CommonMsg.S2CCommontMsg.parseFrom(bytes);
+			System.out.println("getCmdCode=" + msg.getCmdCode());
+			System.out.println("getResult=" + msg.getResult());
+			System.out.println("getResultInfo=" + msg.getResultInfo());
+			System.out.println("getType=" + msg.getType());
+			
+			Method protobufParser = CommonMsg.S2CCommontMsg.class.getMethod("parseFrom",byte[].class);;
+			GeneratedMessage params = (GeneratedMessage)protobufParser.invoke(null, bytes);
+			System.out.println("收到协议data=" + TextFormat.shortDebugString(params));
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+
+	private static void testHttpPost() {
+		String url = "http://127.0.0.1:7003/good.do";
+		
+		
+		//1001-获取分区列表
+		String rsStr = null;
+		
+		try {
+			String params = "{\"cmdId\":1001,\"sig\":\"A23FE172AE0CD1980C550C54A76BAB56\"}";
+			
+//			rsStr = HttpUtils.URLPost(url, params,"UTF-8",30*1000);
+			
+			Map<String, String> hearders = new HashMap<String, String>();
+			hearders.put("User-Agent", "Mozilla/5.0 GameServer");
+	    	rsStr = HttpApiClient.post(url, params, hearders,"UTF-8",30000);
+		} catch (IOException e) {
+			e.printStackTrace();
+		}
+		
+		System.out.println("rsStr=" + rsStr);
+	}
+
 	public static void testClassLoader() {
 		// 指定类加载器加载调用
         MyClassLoader classLoader = new MyClassLoader("E:\\tempshIE");
@@ -182,11 +435,23 @@ public class TestMain {
 	
 	private static void testUpdateRes() {
 		System.out.println("当前时间:" + new Date().toString());
-//		String httpUrl = "http://10.6.8.98:7004/hIEres/serverData.do";
-		String httpUrl = "http://10.35.7.18:8080/hieres/serverData.do";
+		String httpUrl = "http://10.6.8.98:7004/hIEres/serverData.do";
+//		String httpUrl = "http://10.35.7.18:8080/hieres/serverData.do";
 		try{
-			InputStream input = HttpUtils.httpDownload(httpUrl);
-			byte[] buff = IOUtils.toByteArray(input);
+			byte[] buff = null;
+			for (int i = 0; i < 1000; i++) {
+				
+				long ti = System.currentTimeMillis();
+				try {
+					System.out.println("下载尝试次数:" + (i + 1));
+					buff = HttpUtils.httpDownload(httpUrl,10 + i*10);
+					System.out.println("\t 下载耗时:" + (System.currentTimeMillis() - ti));
+					break;
+				} catch (Exception e) {
+					e.printStackTrace();
+				}
+			}
+			
 			if (buff.length == 0) {
 				System.out.println("下载更新资源:下载资源失败, 资源为空");
 				return;
@@ -259,51 +524,6 @@ public class TestMain {
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
-	}
-
-	/**
-	 * 测试b站充值签名:ios
-	 */
-	private static void testOrderSign_Bz_ios() {
-//		假设服务端签名密钥为：pHcNbNb4vtvn8HXT 
-//		out_trade_no BILIBILI-1234567890
-//		money 600 
-//		game_money 1200 
-//		product_id com.bilibili.test.item01
-//		notify_url http://demo.com/notify（如果无就按空字符串处理，即不参与签名） 
-//		将上述五个字段按KEY字典升序排列，并将值拼接在一起，最后拼上服务端密钥 
-//		最终参与签名的串：1200600http://demo.com/notifyBILIBILI-1234567890com.bilibili.test.item01pHcNbNb4vtvn8HXT 
-//		对参与签名的串进行MD5运算，并将结果转化为小写 计算出的签名：c736b13ba58ff87d9e8ce5d6190fc154
-			
-		String appKey = "pHcNbNb4vtvn8HXT";
-		String out_trade_no = "BILIBILI-1234567890";//922350663000002---商户订单号
-		int money = 600;//600---本次交易金额
-		int game_money = 1200;//60---游戏内货币
-		String product_id = "com.bilibili.test.item01";//苹果商品号
-		String notify_url = "http://demo.com/notify";//---支付回调地址
-	
-		TreeMap<String, String> map = new TreeMap<String, String>();
-		map.put("out_trade_no", out_trade_no);
-		map.put("money", String.valueOf(money));
-		map.put("game_money", String.valueOf(game_money));
-		map.put("product_id", product_id);
-		map.put("notify_url", notify_url);
-		
-		//实现1:调用通用接口
-		String s1 = SignUtil.getSign(map, appKey).toLowerCase();
-		System.out.println("s1=" + s1);
-		
-		//实现2:自己写
-		StringBuffer signCalc = new StringBuffer();
-	    for (Map.Entry<String, String> entry : map.entrySet()) {
-	    	signCalc.append(String.valueOf(entry.getValue()));
-	    }
-	    
-	    signCalc.append(appKey);//加上key
-	    String str2 = signCalc.toString();
-	    String s2 = MD5.toMD5(str2).toLowerCase();
-		System.out.println("加密前=" + str2);
-		System.out.println("md5=" + s2);
 	}
 
 	private static void testStream() {
@@ -1206,5 +1426,36 @@ public class TestMain {
 			System.out.println(itemIds.get(i) + ":" + itemNums.get(i));
 		}
 	}
+	
+	 /**
+    *
+    */
+   public static void testLambda() {
+       System.out.println("测试启动:");
+
+       Map<String, Integer> map = new HashMap<>();
+
+       for (int i = 0; i < 3; i++) {
+           for (int j = 1; j <= 4; j++) {
+               map.merge("aaa" + i, j, (a, b) -> a + b);
+           }
+       }
+
+       map.forEach((k, v) -> {
+           System.out.println("key=" + k + ",v=" + v);
+       });
+
+       System.out.println("测试结果:" + map.toString());
+
+       List<String> list = Arrays.asList(new String[]{"aa1", "aa2", "bb", "cc"});
+       for (String ss : list) {
+           System.out.println("v=" + ss);
+       }
+
+       System.out.println("1=" + list.stream().filter(s -> s.startsWith("a"))
+//               .map(s2 -> s2+"*").findAny().orElse("no!")
+                       .collect(Collectors.toList())
+       );
+   }
 
 }
